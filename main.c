@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <math.h>
 #include <string.h>
+#include <semaphore.h>
 
 // First argument should be Number of Threads;
 
@@ -16,17 +17,22 @@
 
 struct args{
     double** array;
-    double** newArray;
-    int DIMENSIONS;
-    int startRow;
-    int endRow;
-};
+    double* row;
+    int rowNumber;
+}Args;
+
+pthread_barrier_t barrier;
+
+// ARGS
+int NUM_THREADS;
+int DIMENSIONS;
+double PRECISION;
 
 double average(double a, double b, double c, double d){
     return (a + b + c + d) / 4;
 }
 
-double **generate_r_array(int DIMENSIONS){
+double **generate_r_array(){
     srand(time(NULL));
     double** array;
 
@@ -47,7 +53,7 @@ double **generate_r_array(int DIMENSIONS){
     return array;
 }
 
-int IN_PRECISION(double **oldArray, double **newArray, int DIMENSIONS, double PRECISION){
+int IN_PRECISION(double **oldArray, double **newArray){
     for(int i = 0; i < DIMENSIONS; i++){
         for(int j = 0; j < DIMENSIONS; j++){
             if(oldArray[i][j] - newArray[i][j] > PRECISION || oldArray[i][j] - newArray[i][j] < -PRECISION){
@@ -58,7 +64,7 @@ int IN_PRECISION(double **oldArray, double **newArray, int DIMENSIONS, double PR
     return 1;
 }
 
-void print_array(double **array, int DIMENSIONS){
+void print_array(double **array){
     for(int i = 0; i < DIMENSIONS; i++){
         for(int j = 0; j < DIMENSIONS; j++){
             printf("%f ", array[i][j]);
@@ -68,66 +74,61 @@ void print_array(double **array, int DIMENSIONS){
     printf("\n\n");
 }
 
-// Averages a chunk of the array.
+// Averages a row of the array.
 
-void* average_chunk(void* chunkArgs){
+void* average_row(void* chunkArgs){
+    int rowNumber = ((struct args*)chunkArgs)->rowNumber;
     double** array = ((struct args*)chunkArgs)->array;
-    double ** newArray = ((struct args*)chunkArgs)->newArray;
-    int DIMENSIONS = ((struct args*)chunkArgs)->DIMENSIONS;
-    int startRow = ((struct args*)chunkArgs)->startRow;
-    int endRow = ((struct args*)chunkArgs)->endRow;
+    double * newArray = ((struct args*)chunkArgs)->row;
 
-    for(int i = startRow; i < endRow; i++){
-        for(int j = 0; j < DIMENSIONS; j++){
-            if (j != 0 && j != DIMENSIONS - 1 && i != 0 && i != DIMENSIONS - 1) {
-                newArray[i][j] = average(array[i + 1][j], array[i - 1][j], array[i][j + 1], array[i][j - 1]);
+    for(int i = 0; i < DIMENSIONS; i++){
+
+            if (i != 0 && i != DIMENSIONS - 1 && rowNumber != 0 && rowNumber != DIMENSIONS - 1) {
+                newArray[i] = average(array[i + 1][rowNumber], array[i - 1][rowNumber], array[i][rowNumber + 1], array[i][rowNumber - 1]);
             }
             else{
-                newArray[i][j] = array[i][j];
+                newArray[i] = array[rowNumber][i];
             }
-        }
+
     }
-    pthread_exit(0);
+    free(chunkArgs);
+    pthread_barrier_wait(&barrier);
 }
 
+double **average_array(double **array, int allotedThreads){
 
-double **average_array(double **array, int DIMENSIONS, int THREAD_NUM){
+
+    // Memory allocated to averaged array that's going to be returned.
 
     double** newArray = malloc(sizeof(double*) * DIMENSIONS);
-
     for(int i = 0; i < DIMENSIONS; i++){
         newArray[i] = malloc(sizeof(double*) * DIMENSIONS);
     }
 
-    // Thread ID:
-    pthread_t tids[THREAD_NUM];
+    // Thread IDs:
+    pthread_t *thread_ids = malloc(sizeof(pthread_t)*allotedThreads);
 
-    //Create Attributes
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
+    // For each chunk of workload, allocate each thread a row. Remaining work is then done after.
 
-    int i = 0;
-    while(i < DIMENSIONS){
-        struct args *chunkArgs = malloc(sizeof(struct args));
-        chunkArgs->array = array;
-        chunkArgs->newArray = newArray; // The whole array, meaning it'll get rewritten every time.
-        chunkArgs->DIMENSIONS = DIMENSIONS;
-        chunkArgs->startRow = i;
-        chunkArgs->endRow = i+(DIMENSIONS / THREAD_NUM);
+    pthread_barrier_init(&barrier, NULL, allotedThreads+1);
 
+    struct args *rowArgs = NULL;
 
-
-
-        printf("Creating Thread: %lu\n", tids[i]);
-        pthread_create(&tids[i], &attr, average_chunk, (void *)chunkArgs);
-        i = i + 1;
+    for(int i = 0; i < allotedThreads; i++){
+        rowArgs = malloc(sizeof(struct args));
+        rowArgs->array = array;
+        rowArgs->rowNumber = i;
+        rowArgs->row = newArray[i];
+        pthread_create(&thread_ids[i], NULL, average_row, rowArgs);
     }
 
+    pthread_barrier_wait(&barrier);
 
+    for(int i = 0; i < allotedThreads; i++){
+        pthread_join(thread_ids[i], NULL);
+    }
 
-
-
-
+    free(thread_ids);
     return newArray;
 }
 
@@ -135,24 +136,43 @@ double **average_array(double **array, int DIMENSIONS, int THREAD_NUM){
 
 int main(int argc, char** argv) {
     char* tempPointer;
-    int NUM_THREADS = 0;
-    int DIMENSIONS = 3;
-    double PRECISION = strtod(argv[3], &tempPointer);
-    double** values = generate_r_array(DIMENSIONS);
-    print_array(values, DIMENSIONS);
+    NUM_THREADS = 0;
+    DIMENSIONS = 8;
+    PRECISION = strtod(argv[3], &tempPointer);
+    double** values = generate_r_array();
+    print_array(values);
     sscanf(argv[1], "%d", &NUM_THREADS);
 
 
     int RUNNING = 1;
 
     while(RUNNING) {
-        double **newAverage = average_array(values, DIMENSIONS, NUM_THREADS);
-        print_array(newAverage, DIMENSIONS);
+        double **newAverage = average_array(values, NUM_THREADS);
+        print_array(newAverage);
 
-        if(IN_PRECISION(values, newAverage, DIMENSIONS, PRECISION)){ // If precision is run in parallel, arrays need to be localized to in_precision before values = newAverage.
+        if(IN_PRECISION(values, newAverage)){// If precision is run in parallel, arrays need to be localized to in_precision before values = newAverage.
+
+            for(int i = 0; i < DIMENSIONS; i++){
+                double *ptr = values[i];
+                double *ptr2 = newAverage[i];
+                free(ptr);
+                free(ptr2);
+            }
+
+            free(values);
+            free(newAverage);
             RUNNING = 0;
         }
-        else{ values = newAverage;}
+        else{
+
+            for(int i = 0; i < DIMENSIONS; i++){
+                double *ptr = values[i];
+                free(ptr);
+            }
+
+            values = newAverage;
+
+        }
     }
 
 
