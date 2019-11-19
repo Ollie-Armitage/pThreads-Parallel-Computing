@@ -1,210 +1,74 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <assert.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <math.h>
 #include <string.h>
-#include <semaphore.h>
 #include <time.h>
 
-// First argument should be Number of Threads;
+struct args;
 
+double **generate_random_array(int DIMENSIONS);
 
+void free_double_array(double** array, int DIMENSIONS);
 
+void print_double_array(double **array, int DIMENSIONS);
 
-// Feed 2d Array into main > For each element that isn't a side element, make the same element in a different array
-// equal the average of it's surrounding elements >  perform the same action on the next array.
+void set_array_edges(double** RANDOM_ARRAY, double** AVERAGED_VALUES, int DIMENSIONS);
 
-struct args{
-    double** array;
-    double* row;
-    int rowNumber;
-}Args;
+double ** allocate_double_array(int SIZE);
 
-pthread_barrier_t barrier;
+int IN_PRECISION(double **oldArray, double **newArray, double PRECISION, int DIMENSIONS);
 
-// ARGS
-int NUM_THREADS;
-int DIMENSIONS;
-double PRECISION;
-
-double average(double a, double b, double c, double d){
-    return (a + b + c + d) / 4;
-}
-
-double **generate_r_array(){
-    srand(time(NULL));
-    double** array;
-
-    array = malloc(sizeof(double*) * DIMENSIONS);
-
-    for(int i = 0; i < DIMENSIONS; i++){
-
-        array[i] = malloc(sizeof(double*) * DIMENSIONS);
-
-        for(int j = 0; j < DIMENSIONS; j++){
-            double random_value;
-            random_value = (double)rand()/RAND_MAX*6.0;
-            array[i][j] = random_value;
-
-        }
-    }
-
-    return array;
-}
-
-int IN_PRECISION(double **oldArray, double **newArray){
-    for(int i = 0; i < DIMENSIONS; i++){
-        for(int j = 0; j < DIMENSIONS; j++){
-            if(oldArray[i][j] - newArray[i][j] > PRECISION || oldArray[i][j] - newArray[i][j] < -PRECISION){
-                return 0;
-            }
-        }
-    }
-    return 1;
-}
-
-void print_array(double **array){
-    for(int i = 0; i < DIMENSIONS; i++){
-        for(int j = 0; j < DIMENSIONS; j++){
-            printf("%f ", array[i][j]);
-        }
-        printf("\n");
-    }
-    printf("\n\n");
-}
-
-// Averages a row of the array.
-
-void* average_row(void* chunkArgs){
-    int rowNumber = ((struct args*)chunkArgs)->rowNumber;
-    double** array = ((struct args*)chunkArgs)->array;
-    double * newArray = ((struct args*)chunkArgs)->row;
-
-    for(int i = 0; i < DIMENSIONS; i++){
-
-            if (i != 0 && i != DIMENSIONS - 1 && rowNumber != 0 && rowNumber != DIMENSIONS - 1) {
-                newArray[i] = average(array[i + 1][rowNumber], array[i - 1][rowNumber], array[i][rowNumber + 1], array[i][rowNumber - 1]);
-            }
-            else{
-                newArray[i] = array[rowNumber][i];
-            }
-
-    }
-    pthread_barrier_wait(&barrier);
-}
-
-double **average_array(double **array, int allotedThreads){
-
-
-    // Memory allocated to averaged array that's going to be returned.
-
-    double** newArray = malloc(sizeof(double*) * DIMENSIONS);
-    for(int i = 0; i < DIMENSIONS; i++){
-        newArray[i] = malloc(sizeof(double*) * DIMENSIONS);
-    }
-
-    // Thread IDs:
-    pthread_t *thread_ids = malloc(sizeof(pthread_t)*DIMENSIONS);
-
-    // For each chunk of workload, allocate each thread a row. Remaining work is then done after.
-
-    pthread_barrier_init(&barrier, NULL, allotedThreads+1);
-
-    struct args *rowArgs = NULL;
-
-    for(int i = 0; i < DIMENSIONS / allotedThreads; i++){
-
-        for(int j = allotedThreads*i; j < allotedThreads*(i+1); j++){
-            rowArgs = malloc(sizeof(struct args));
-            rowArgs->array = array;
-            rowArgs->rowNumber = j;
-            rowArgs->row = newArray[j];
-            pthread_create(&thread_ids[j], NULL, average_row, rowArgs);
-        }
-
-        pthread_barrier_wait(&barrier);
-
-        for(int k = 0; k < allotedThreads; k++) {
-            pthread_join(thread_ids[k], NULL);
-        }
-    }
-
-    int remainder = DIMENSIONS % allotedThreads;
-    pthread_barrier_init(&barrier, NULL, remainder+1);
-
-    if(remainder != 0){
-        for(int j = DIMENSIONS - remainder; j < DIMENSIONS; j++){
-            rowArgs = malloc(sizeof(struct args));
-            rowArgs->array = array;
-            rowArgs->rowNumber = j;
-            rowArgs->row = newArray[j];
-            pthread_create(&thread_ids[j], NULL, average_row, rowArgs);
-        }
-
-        pthread_barrier_wait(&barrier);
-
-        for(int j = DIMENSIONS - remainder; j < DIMENSIONS; j++){
-            pthread_join(thread_ids[j], NULL);
-        }
-    }
-
-    free(thread_ids);
-
-    return newArray;
-}
-
-// Things that can be run in parallel: 1. Averaging chunks of the array. 2. Checking the precision of the array
+double** solver(double** VALUES, int DIMENSIONS, int NUM_THREADS, double PRECISION);
 
 int main(int argc, char** argv) {
 
+    // Time Taken Setup.
+
     clock_t start, end;
     double cpu_time_used;
-
     start = clock();
 
-    char* tempPointer;
+    // Format Args.
+
+    int NUM_THREADS = 0;
+    int DIMENSIONS = 0;
+    double PRECISION = 0;
+
+
+    char* temp_pointer;
+
     sscanf(argv[1], "%d", &NUM_THREADS);
     sscanf(argv[2], "%d", &DIMENSIONS);
-    PRECISION = strtod(argv[3], &tempPointer);
-    double** values = generate_r_array();
-    print_array(values);
+    PRECISION = strtod(argv[3], &temp_pointer);
 
-    int RUNNING = 1;
+    // Generate a random two-dimensional double array (Values between 0 - 10).
 
-    while(RUNNING) {
-        double **newAverage = average_array(values, NUM_THREADS);
-        print_array(newAverage);
+    double** VALUES = generate_random_array(DIMENSIONS);
 
-        if(IN_PRECISION(values, newAverage)){// If precision is run in parallel, arrays need to be localized to in_precision before values = newAverage.
+    // Print Random Array.
 
-            for(int i = 0; i < DIMENSIONS; i++){
-                double *ptr = values[i];
-                double *ptr2 = newAverage[i];
-                free(ptr);
-                free(ptr2);
-            }
+    print_double_array(VALUES, DIMENSIONS);
 
-            free(values);
-            free(newAverage);
-            RUNNING = 0;
-        }
-        else{
+    // Return the average of the values.
 
-            for(int i = 0; i < DIMENSIONS; i++){
-                double *ptr = values[i];
-                free(ptr);
-            }
+    double ** AVERAGED_VALUES = solver(VALUES, DIMENSIONS, NUM_THREADS, PRECISION);
 
-            values = newAverage;
+    print_double_array(AVERAGED_VALUES, DIMENSIONS);
 
-        }
-    }
+    // Free Random Array and the averaged values.
+
+    free_double_array(VALUES, DIMENSIONS);
+    free_double_array(AVERAGED_VALUES, DIMENSIONS);
+
+    // End time taken.
 
     end = clock();
 
     printf("MAIN program has ended.\n");
+
+    // Work out the time taken and file it.
 
     cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
     FILE *out_file = fopen("log.txt", "a");
@@ -218,4 +82,102 @@ int main(int argc, char** argv) {
 
 
     return 0;
+}
+
+void set_array_edges(double** RANDOM_ARRAY, double** AVERAGED_VALUES, int DIMENSIONS){
+
+    // This could be parallelised.
+
+    for(int i = 0; i < DIMENSIONS; i++){
+        AVERAGED_VALUES[i][0] = RANDOM_ARRAY[i][0];
+        AVERAGED_VALUES[i][DIMENSIONS-1] = RANDOM_ARRAY[i][DIMENSIONS-1];
+    }
+
+    for(int j = 1; j < DIMENSIONS-1; j++){
+        AVERAGED_VALUES[0][j] = RANDOM_ARRAY[0][j];
+        AVERAGED_VALUES[DIMENSIONS-1][j] = RANDOM_ARRAY[DIMENSIONS-1][j];
+    }
+
+}
+
+// Returns the averaged array of values that is within precision.
+
+double** solver(double** RANDOM_ARRAY, int DIMENSIONS, int NUM_THREADS, double PRECISION){
+    double ** AVERAGED_VALUES = allocate_double_array(DIMENSIONS);
+
+    set_array_edges(RANDOM_ARRAY, AVERAGED_VALUES, DIMENSIONS);
+
+    return AVERAGED_VALUES;
+}
+
+
+
+
+
+
+// Structure of arguments to be fed into a thread for it's function.
+
+struct args{
+    double** array;
+    double* row;
+    int rowNumber;
+};
+
+double ** allocate_double_array(int SIZE){
+    double** array = malloc(sizeof(double)*SIZE);
+    for(int i = 0; i < SIZE; i++){ array[i] = calloc(SIZE, sizeof(double*)*SIZE);}
+    return array;
+}
+
+
+
+// Generate a random array of double values between 0 and 10.
+
+double **generate_random_array(int DIMENSIONS){
+    srand(time(NULL));
+    double** array = allocate_double_array(DIMENSIONS);
+    double random_value;
+    for(int i = 0; i < DIMENSIONS; i++){
+        for(int j = 0; j < DIMENSIONS; j++){
+            random_value = (double)rand()/RAND_MAX*10;
+            array[i][j] = random_value;
+        }
+    }
+
+    return array;
+}
+
+// Free's the memory used in an array of doubles.
+
+void free_double_array(double** array, int DIMENSIONS){
+    for(int i = 0; i < DIMENSIONS; i++){
+        double *tempPtr = array[i];
+        free(tempPtr);
+    }
+    free(array);
+}
+
+// Returns 1 if in the specified precision, 0 if not in the specified precision.
+
+int IN_PRECISION(double **oldArray, double **newArray, double PRECISION, int DIMENSIONS){
+    for(int i = 0; i < DIMENSIONS; i++){
+        for(int j = 0; j < DIMENSIONS; j++){
+            if(oldArray[i][j] - newArray[i][j] > PRECISION || oldArray[i][j] - newArray[i][j] < -PRECISION){
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
+// Prints an array of doubles.
+
+void print_double_array(double **array, int DIMENSIONS){
+    for(int i = 0; i < DIMENSIONS; i++){
+        for(int j = 0; j < DIMENSIONS; j++){
+            printf("%f ", array[i][j]);
+        }
+        printf("\n");
+    }
+    printf("\n\n");
 }
