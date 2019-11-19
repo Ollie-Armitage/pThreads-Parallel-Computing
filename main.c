@@ -6,6 +6,7 @@
 #include <math.h>
 #include <string.h>
 #include <semaphore.h>
+#include <time.h>
 
 // First argument should be Number of Threads;
 
@@ -91,7 +92,6 @@ void* average_row(void* chunkArgs){
             }
 
     }
-    free(chunkArgs);
     pthread_barrier_wait(&barrier);
 }
 
@@ -106,7 +106,7 @@ double **average_array(double **array, int allotedThreads){
     }
 
     // Thread IDs:
-    pthread_t *thread_ids = malloc(sizeof(pthread_t)*allotedThreads);
+    pthread_t *thread_ids = malloc(sizeof(pthread_t)*DIMENSIONS);
 
     // For each chunk of workload, allocate each thread a row. Remaining work is then done after.
 
@@ -114,35 +114,64 @@ double **average_array(double **array, int allotedThreads){
 
     struct args *rowArgs = NULL;
 
-    for(int i = 0; i < allotedThreads; i++){
-        rowArgs = malloc(sizeof(struct args));
-        rowArgs->array = array;
-        rowArgs->rowNumber = i;
-        rowArgs->row = newArray[i];
-        pthread_create(&thread_ids[i], NULL, average_row, rowArgs);
+    for(int i = 0; i < DIMENSIONS / allotedThreads; i++){
+
+        for(int j = allotedThreads*i; j < allotedThreads*(i+1); j++){
+            rowArgs = malloc(sizeof(struct args));
+            rowArgs->array = array;
+            rowArgs->rowNumber = j;
+            rowArgs->row = newArray[j];
+            pthread_create(&thread_ids[j], NULL, average_row, rowArgs);
+        }
+
+        pthread_barrier_wait(&barrier);
+
+        for(int k = 0; k < allotedThreads; k++) {
+            pthread_join(thread_ids[k], NULL);
+        }
     }
 
-    pthread_barrier_wait(&barrier);
+    int remainder = DIMENSIONS % allotedThreads;
+    pthread_barrier_init(&barrier, NULL, remainder+1);
 
-    for(int i = 0; i < allotedThreads; i++){
-        pthread_join(thread_ids[i], NULL);
+    if(remainder != 0){
+        for(int j = DIMENSIONS - remainder; j < DIMENSIONS; j++){
+            rowArgs = malloc(sizeof(struct args));
+            rowArgs->array = array;
+            rowArgs->rowNumber = j;
+            rowArgs->row = newArray[j];
+            pthread_create(&thread_ids[j], NULL, average_row, rowArgs);
+        }
+
+        pthread_barrier_wait(&barrier);
+
+        for(int j = DIMENSIONS - remainder; j < DIMENSIONS; j++){
+            pthread_join(thread_ids[j], NULL);
+        }
     }
+
+
 
     free(thread_ids);
+
     return newArray;
 }
 
 // Things that can be run in parallel: 1. Averaging chunks of the array. 2. Checking the precision of the array
 
 int main(int argc, char** argv) {
+
+    clock_t start, end;
+    double cpu_time_used;
+
+    start = clock();
+
     char* tempPointer;
-    NUM_THREADS = 0;
-    DIMENSIONS = 8;
+    NUM_THREADS = 1;
+    DIMENSIONS = 100;
     PRECISION = strtod(argv[3], &tempPointer);
     double** values = generate_r_array();
     print_array(values);
-    sscanf(argv[1], "%d", &NUM_THREADS);
-
 
     int RUNNING = 1;
 
@@ -175,8 +204,11 @@ int main(int argc, char** argv) {
         }
     }
 
+    end = clock();
+
+    cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
 
 
-    printf("MAIN program has ended.\n");
+    printf("MAIN program has ended in %f.\n", cpu_time_used);
     return 0;
 }
