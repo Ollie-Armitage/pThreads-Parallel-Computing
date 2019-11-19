@@ -150,8 +150,6 @@ double **average_array(double **array, int allotedThreads){
         }
     }
 
-
-
     free(thread_ids);
 
     return newArray;
@@ -167,8 +165,8 @@ int main(int argc, char** argv) {
     start = clock();
 
     char* tempPointer;
-    NUM_THREADS = 1;
-    DIMENSIONS = 100;
+    sscanf(argv[1], "%d", &NUM_THREADS);
+    sscanf(argv[2], "%d", &DIMENSIONS);
     PRECISION = strtod(argv[3], &tempPointer);
     double** values = generate_r_array();
     print_array(values);
@@ -206,9 +204,18 @@ int main(int argc, char** argv) {
 
     end = clock();
 
+    printf("MAIN program has ended.\n");
+
     cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
+    FILE *out_file = fopen("log.txt", "a");
+
+    if(out_file == NULL){
+        printf("Couldn't open outfile.\n");
+        exit(-1);
+    }
+
+    fprintf(out_file, "%f\n", cpu_time_used);
 
 
-    printf("MAIN program has ended in %f.\n", cpu_time_used);
     return 0;
 }
