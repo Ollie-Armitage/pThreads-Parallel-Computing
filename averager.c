@@ -29,10 +29,6 @@ int main(){
 
 
     while((read = getline(&line, &len, in_file)) != -1){
-
-
-
-
         counter++;
 
         if(counter == 10){

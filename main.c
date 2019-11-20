@@ -18,6 +18,8 @@ struct args{
 
 double **generate_random_array(int DIMENSIONS);
 
+double** copy_array(double** TO_ARRAY, double** FROM_ARRAY, int DIMENSIONS);
+
 void free_double_array(double** array, int DIMENSIONS);
 
 void print_double_array(double **array, int DIMENSIONS);
@@ -74,8 +76,6 @@ int main(int argc, char** argv) {
 
     end = clock();
 
-    printf("MAIN program has ended.\n");
-
     // Work out the time taken and file it.
 
     cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
         printf("Couldn't open outfile.\n");
         exit(-1);
     }
-
+    printf("MAIN program has ended in %f.\n", cpu_time_used);
     fprintf(out_file, "%f\n", cpu_time_used);
 
 
@@ -147,18 +147,7 @@ double** sequential_solver(int DIMENSIONS, double** RANDOM_ARRAY, double** AVERA
     // do the program sequentially.
 
     struct args *chunkArgs;
-
-    chunkArgs = malloc(sizeof(struct args));
-    chunkArgs->START_ROW = 1;
-    chunkArgs->END_ROW = DIMENSIONS - 1;
-    chunkArgs->DIMENSIONS = DIMENSIONS;
-    chunkArgs->ARRAY = RANDOM_ARRAY;
-    chunkArgs->END_VALUES = AVERAGED_VALUES;
-
-    average_array_chunk(chunkArgs);
-
     while(1){
-
         chunkArgs = malloc(sizeof(struct args));
         chunkArgs->START_ROW = 1;
         chunkArgs->END_ROW = DIMENSIONS - 1;
@@ -166,16 +155,15 @@ double** sequential_solver(int DIMENSIONS, double** RANDOM_ARRAY, double** AVERA
         chunkArgs->ARRAY = RANDOM_ARRAY;
         chunkArgs->END_VALUES = AVERAGED_VALUES;
 
-        if(IN_PRECISION(RANDOM_ARRAY, AVERAGED_VALUES, PRECISION, DIMENSIONS)){
+
+        if(IN_PRECISION(RANDOM_ARRAY, AVERAGED_VALUES, PRECISION, DIMENSIONS)){ // Check Current Array against Input Array / Previous Array
             return AVERAGED_VALUES;
         }else{
-
-            for(int i = 1; i < DIMENSIONS-1; i++){
-                for(int j = 1; j < DIMENSIONS-1; j++){
-                    RANDOM_ARRAY[i][j] = AVERAGED_VALUES[i][j];
-                }
-            }
+            double** TEMP_ARRAY = copy_array(generate_random_array(DIMENSIONS), AVERAGED_VALUES, DIMENSIONS);
             average_array_chunk(chunkArgs);
+            copy_array(RANDOM_ARRAY, TEMP_ARRAY, DIMENSIONS);
+            free(TEMP_ARRAY);
+
         }
     }
 }
@@ -194,11 +182,7 @@ double** parallel_solver(int DIMENSIONS, int NUM_THREADS, double** RANDOM_ARRAY,
         }
         else{
 
-            for(int i = 1; i < DIMENSIONS-1; i++){
-                for(int j = 1; j < DIMENSIONS-1; j++){
-                    RANDOM_ARRAY[i][j] = AVERAGED_VALUES[i][j];
-                }
-            }
+            double** TEMP_ARRAY = copy_array(generate_random_array(DIMENSIONS), AVERAGED_VALUES, DIMENSIONS);
 
             if (AVERAGING_THREADS > (DIMENSIONS - 2)) {
                 AVERAGING_THREADS = DIMENSIONS - 2;
@@ -245,8 +229,14 @@ double** parallel_solver(int DIMENSIONS, int NUM_THREADS, double** RANDOM_ARRAY,
 
             }
 
+            copy_array(RANDOM_ARRAY, TEMP_ARRAY, DIMENSIONS);
+            free(TEMP_ARRAY);
+
             free(ids);
         }
+
+
+
     }
 }
 
@@ -255,7 +245,6 @@ double** solver(double** RANDOM_ARRAY, int DIMENSIONS, int NUM_THREADS, double P
 
     double ** AVERAGED_VALUES = allocate_double_array(DIMENSIONS);
     set_array_edges(RANDOM_ARRAY, AVERAGED_VALUES, DIMENSIONS);
-
 
     if(NUM_THREADS == 1){
         sequential_solver(DIMENSIONS, RANDOM_ARRAY, AVERAGED_VALUES, PRECISION);
@@ -267,6 +256,16 @@ double** solver(double** RANDOM_ARRAY, int DIMENSIONS, int NUM_THREADS, double P
 
 }
 
+double** copy_array(double** TO_ARRAY, double** FROM_ARRAY, int DIMENSIONS){
+    for(int i = 0; i < DIMENSIONS; i++){
+        for(int j = 0; j < DIMENSIONS; j++){
+            TO_ARRAY[i][j] = FROM_ARRAY[i][j];
+        }
+    }
+
+    return TO_ARRAY;
+
+}
 
 double ** allocate_double_array(int SIZE){
     double** array = malloc(sizeof(double)*SIZE);

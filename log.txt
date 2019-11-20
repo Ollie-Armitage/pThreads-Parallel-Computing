@@ -1,7 +1,38 @@
-0.000399
-0.017130
-0.002704
-0.451433
-0.075992
-0.081145
-0.302671
+# started on Wed Nov 20 17:07:35 2019
+
+
+ Performance counter stats for './main 1 150 0.01':
+
+          2,301.20 msec task-clock                #    0.980 CPUs utilized          
+               199      context-switches          #    0.086 K/sec                  
+                 1      cpu-migrations            #    0.000 K/sec                  
+               364      page-faults               #    0.158 K/sec                  
+     8,989,967,622      cycles                    #    3.907 GHz                      (62.44%)
+         6,358,077      stalled-cycles-frontend   #    0.07% frontend cycles idle     (62.44%)
+     6,491,895,721      stalled-cycles-backend    #   72.21% backend cycles idle      (62.47%)
+    25,910,829,379      instructions              #    2.88  insn per cycle         
+                                                  #    0.25  stalled cycles per insn  (62.47%)
+       979,487,359      branches                  #  425.641 M/sec                    (62.60%)
+         3,305,278      branch-misses             #    0.34% of all branches          (62.58%)
+    12,968,631,151      L1-dcache-loads           # 5635.586 M/sec                    (62.58%)
+       157,830,614      L1-dcache-load-misses     #    1.22% of all L1-dcache hits    (62.42%)
+   <not supported>      LLC-loads                                                   
+   <not supported>      LLC-load-misses                                             
+
+       2.348200380 seconds time elapsed
+
+       2.293447000 seconds user
+       0.008005000 seconds sys
+
+
+1.698606
+1.059483
+0.101142
+0.136063
+0.166217
+3.216383
+1.737659
+1.593558
+1.292258
+0.106246
+0.094723
