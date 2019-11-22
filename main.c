@@ -3,82 +3,87 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <semaphore.h>
+
+
 
 struct args{
-    int DIMENSIONS;
-    int THREADS_AVAILABLE;
     int THREAD_NUMBER;
+    int DIMENSIONS;
+    int POSITION;
+    int ROWS_REMAINING;
+    int ROWS_PER_THREAD;
     double** END_ARRAY;
-    pthread_mutex_t LOCK;
-    pthread_mutex_t THREAD_LOCK;
+    double** PREV_ARRAY;
     pthread_t *THREAD_IDS;
 };
 
+pthread_mutex_t LOCK;
+
 double PRECISION = 0;
 int PRECISION_FLAG = 0;
-int COUNT = 0;
-pthread_mutex_t COUNT_LOCK;
+int MAX_THREADS = 0;
 
-double ** solver(double** INPUT_ARRAY, int NUM_THREADS, int DIMENSIONS, double PRECISION);
-void dismantle_array(double** ARRAY, int DIMENSIONS);
 double **generate_random_array(int DIMENSIONS);
+double ** allocate_double_array(int DIMENSIONS);
+double ** solver(double** INPUT_ARRAY, int THREAD_NUM, int DIMENSIONS);
+double average(double UP, double DOWN, double LEFT, double RIGHT);
+void dismantle_array(double** ARRAY, int DIMENSIONS);
 void print_double_array(double **array, int DIMENSIONS);
-double ** allocate_double_array(int SIZE);
+void copy_array(double ** FROM_ARRAY, double ** TO_ARRAY, int DIMENSIONS);
+void CHECK_PRECISION(double ** END_ARRAY, double ** PREVIOUS_ARRAY, int DIMENSIONS);
 void* runnable(void* args);
 
 
+int IN_PRECISION();
+
+
 int main(int argc, char** argv){
-    // Time Taken Setup.
-
-    clock_t start, end;
-    double cpu_time_used;
-    start = clock();
-
-    pthread_mutex_init(&COUNT_LOCK, NULL);
-
     // Format Args.
 
-    int NUM_THREADS = 0;
     int DIMENSIONS = 0;
-    sscanf(argv[1], "%d", &NUM_THREADS);
+    int CORRECTNESS_TESTING = 0;
+
+    sscanf(argv[1], "%d", &MAX_THREADS);
     sscanf(argv[2], "%d", &DIMENSIONS);
     char *temp_pointer;
     PRECISION = strtod(argv[3], &temp_pointer);
 
-    // Account for the current thread.
-
+    if(argv[4] != NULL){
+        sscanf(argv[4], "%d", &CORRECTNESS_TESTING);
+    }
 
     // Setup Double Array.
 
     double** INPUT_ARRAY = generate_random_array(DIMENSIONS);
+    double ** SINGLE_THREAD_ARRAY = NULL;
 
-    solver(INPUT_ARRAY, NUM_THREADS, DIMENSIONS, PRECISION);
+    //print_double_array(INPUT_ARRAY);
+
+
+    if(CORRECTNESS_TESTING == 1){
+        SINGLE_THREAD_ARRAY = allocate_double_array(DIMENSIONS);
+        copy_array(INPUT_ARRAY, SINGLE_THREAD_ARRAY, DIMENSIONS);
+        solver(SINGLE_THREAD_ARRAY, 1, DIMENSIONS);
+        print_double_array(SINGLE_THREAD_ARRAY, DIMENSIONS);
+    }
 
     print_double_array(INPUT_ARRAY, DIMENSIONS);
 
-    dismantle_array(INPUT_ARRAY, DIMENSIONS);
 
-    // End time taken.
+    solver(INPUT_ARRAY, MAX_THREADS, DIMENSIONS);
 
-    end = clock();
 
-    // Work out the time taken and file it.
+    //print_double_array(INPUT_ARRAY);
 
-    cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
+    if(CORRECTNESS_TESTING == 1){
+        CHECK_PRECISION(SINGLE_THREAD_ARRAY, INPUT_ARRAY, DIMENSIONS);
 
-    /*FILE *out_file = fopen("log.txt", "a");
+        if(IN_PRECISION()){
+            printf("In Precision!\n");
+        }
 
-    if(out_file == NULL){
-        printf("Couldn't open outfile.\n");
-        exit(-1);
     }
-
-    fprintf(out_file, "%f\n", cpu_time_used);
-    fclose(out_file);*/
-
-    printf("MAIN program has ended in %f, in ", cpu_time_used);
-    printf("%d runs.\n", COUNT);
-
 
     return 0;
 }
@@ -93,9 +98,8 @@ void print_double_array(double **array, int DIMENSIONS){
     printf("\n\n");
 }
 
-double ** allocate_double_array(int SIZE){
-    double** array = malloc(sizeof(double)*SIZE);
-    for(int i = 0; i < SIZE; i++){ array[i] = calloc(SIZE, sizeof(double)*SIZE);}
+double ** allocate_double_array(int DIMENSIONS){ double** array = malloc(sizeof(double) * DIMENSIONS);
+    for(int i = 0; i < DIMENSIONS; i++){ array[i] = calloc(DIMENSIONS, sizeof(double) * DIMENSIONS);}
     return array;
 }
 
@@ -116,41 +120,29 @@ double **generate_random_array(int DIMENSIONS){
 
 void dismantle_array(double** ARRAY, int DIMENSIONS){
     for(int i = 0; i < DIMENSIONS; i++){
-        double *tempPtr = ARRAY[i];
-        free(tempPtr);
+        free(ARRAY[i]);
     }
 }
 
-void free_struct(struct args* args){
-    if(args != NULL){
-        free(args->THREAD_IDS);
-        free(args);
-    }
-    args = NULL;
-}
+double ** solver(double** PREVIOUS_ARRAY, int THREAD_NUM, int DIMENSIONS){
 
-double ** solver(double** END_ARRAY, int NUM_THREADS, int DIMENSIONS, double PRECISION){
-
-
-    pthread_mutex_t LOCK;
     pthread_mutex_init(&LOCK, NULL);
-    pthread_mutex_t THREAD_LOCK;
-    pthread_mutex_init(&THREAD_LOCK, NULL);
-    pthread_t *THREAD_IDS = malloc(sizeof(pthread_t)*NUM_THREADS);
+
+    pthread_t *THREAD_IDS = malloc(sizeof(pthread_t)*MAX_THREADS);
 
     struct args args;
-    args.DIMENSIONS = DIMENSIONS;
-    args.THREADS_AVAILABLE = NUM_THREADS - 1;
     args.THREAD_NUMBER = 1;
-    args.LOCK = LOCK;
-    args.THREAD_LOCK = THREAD_LOCK;
-    args.END_ARRAY = END_ARRAY;
+    args.DIMENSIONS = DIMENSIONS;
+    args.END_ARRAY = allocate_double_array(DIMENSIONS);
+    args.PREV_ARRAY = PREVIOUS_ARRAY;
     args.THREAD_IDS = THREAD_IDS;
+    args.POSITION = 1;
+    args.ROWS_PER_THREAD = (DIMENSIONS - 2) / THREAD_NUM;
+    args.ROWS_REMAINING = DIMENSIONS;
 
     runnable(&args);
 
-
-    return END_ARRAY;
+    return args.END_ARRAY;
 }
 
 double average(double UP, double DOWN, double LEFT, double RIGHT){
@@ -176,14 +168,7 @@ void CHECK_PRECISION(double ** END_ARRAY, double ** PREVIOUS_ARRAY, int DIMENSIO
 
 }
 
-void INC_COUNT(){
-    pthread_mutex_lock(&COUNT_LOCK);
-    COUNT++;
-    pthread_mutex_unlock(&COUNT_LOCK);
-}
-
 int IN_PRECISION(){
-    INC_COUNT();
     return PRECISION_FLAG;
 }
 
@@ -196,64 +181,53 @@ void copy_array(double ** FROM_ARRAY, double ** TO_ARRAY, int DIMENSIONS){
 }
 
 void* runnable(void* args){
-    struct args *pointer= (struct args*)args;
-    struct args ARGS = *pointer;
-    int THREAD_NUMBER = ARGS.THREAD_NUMBER;
+
+    struct args ARGS = *(struct args*)args;
+    int DIMENSIONS = ARGS.DIMENSIONS;
+    int THREAD_NUMBER = ARGS.THREAD_NUMBER++;
+    int ROWS_PER_THREAD = ARGS.ROWS_PER_THREAD;
+    int ROWS_REMAINING = ARGS.ROWS_REMAINING;
+    int POSITION = ARGS.POSITION;
+    double ** END_ARRAY = ARGS.END_ARRAY;
+    double ** PREVIOUS_ARRAY = ARGS.PREV_ARRAY;
+    pthread_t * THREAD_IDS =  ARGS.THREAD_IDS;
+
     printf("Entering Thread: %d\n", THREAD_NUMBER);
 
-    int DIMENSIONS = ARGS.DIMENSIONS;
-    int THREADS_AVAILABLE = ARGS.THREADS_AVAILABLE;
-
-    pthread_t * THREAD_IDS =  ARGS.THREAD_IDS;
-    double ** END_ARRAY = ARGS.END_ARRAY;
-    double** PREVIOUS_ARRAY = NULL;
-
-    if(THREAD_NUMBER == 1){
-         PREVIOUS_ARRAY = allocate_double_array(DIMENSIONS);
+    if(THREAD_NUMBER < MAX_THREADS){
+        ARGS.ROWS_REMAINING = ARGS.ROWS_REMAINING - ROWS_PER_THREAD;
+        ARGS.POSITION = ARGS.POSITION + ROWS_PER_THREAD;
+        pthread_create(&THREAD_IDS[ARGS.THREAD_NUMBER], NULL, runnable, &ARGS);
     }
-
-
-    pthread_mutex_t lock = ARGS.LOCK;
 
     while(!IN_PRECISION()) {
 
-        if(THREAD_NUMBER == 1){
-            CHECK_PRECISION(END_ARRAY, PREVIOUS_ARRAY, DIMENSIONS);
-            copy_array(END_ARRAY, PREVIOUS_ARRAY, DIMENSIONS);
-        }
-
-        // Horizontal.
-        for (int ROW = 1; ROW < (DIMENSIONS - 1); ROW++) {
-            for (int COLUMN = 1; COLUMN < (DIMENSIONS - 1); COLUMN++) {
-
-                if (THREADS_AVAILABLE > 0 && ROW == 2 && COLUMN == 2) {
-
-                    ARGS.THREADS_AVAILABLE = ARGS.THREADS_AVAILABLE - 1;
-                    ARGS.THREAD_NUMBER = ARGS.THREAD_NUMBER + 1;
-
-                    pthread_create(&THREAD_IDS[ARGS.THREAD_NUMBER], NULL, runnable, args);
-                    THREADS_AVAILABLE = -1;
-                }
-
-                pthread_mutex_lock(&lock);
-                END_ARRAY[ROW][COLUMN] = average(END_ARRAY[ROW][COLUMN + 1], END_ARRAY[ROW][COLUMN - 1],END_ARRAY[ROW + 1][COLUMN], END_ARRAY[ROW - 1][COLUMN]);
-                pthread_mutex_unlock(&lock);
-
+        for (int ROW = POSITION; ROW < POSITION + ROWS_PER_THREAD; ROW++) {
+            for (int COLUMN = 1; COLUMN < (DIMENSIONS - 2); COLUMN++) {
+                // Critical Section.
+                END_ARRAY[ROW][COLUMN] = average(PREVIOUS_ARRAY[ROW][COLUMN + 1], PREVIOUS_ARRAY[ROW][COLUMN - 1], PREVIOUS_ARRAY[ROW + 1][COLUMN], PREVIOUS_ARRAY[ROW - 1][COLUMN]);
 
             }
-
+            ROWS_REMAINING--;
         }
 
-    }
+        if(ROWS_REMAINING < ROWS_PER_THREAD){
+            for(int ROW = DIMENSIONS - ROWS_PER_THREAD; ROW < DIMENSIONS - 1; ROW++){
+                for(int COLUMN = 1; COLUMN < (DIMENSIONS - 2); COLUMN++){
+                    END_ARRAY[ROW][COLUMN] = average(PREVIOUS_ARRAY[ROW][COLUMN + 1], PREVIOUS_ARRAY[ROW][COLUMN - 1], PREVIOUS_ARRAY[ROW + 1][COLUMN], PREVIOUS_ARRAY[ROW - 1][COLUMN]);
+                }
+                POSITION++;
+                ROWS_REMAINING--;
+            }
+        }
 
+        CHECK_PRECISION(END_ARRAY, PREVIOUS_ARRAY, DIMENSIONS);
+        copy_array(END_ARRAY, PREVIOUS_ARRAY, DIMENSIONS);
 
-    if(THREADS_AVAILABLE == -1) {
-        pthread_join(THREAD_IDS[THREAD_NUMBER + 1], NULL);
     }
 
     if(THREAD_NUMBER == 1){
-        dismantle_array(PREVIOUS_ARRAY, DIMENSIONS);
-        free(PREVIOUS_ARRAY);
+        pthread_mutex_destroy(&LOCK);
     }
 
 
