@@ -138,7 +138,7 @@ double ** solver(double** PREVIOUS_ARRAY, int THREAD_NUM, int DIMENSIONS){
     args.THREAD_IDS = THREAD_IDS;
     args.POSITION = 1;
     args.ROWS_PER_THREAD = (DIMENSIONS - 2) / THREAD_NUM;
-    args.ROWS_REMAINING = DIMENSIONS;
+    args.ROWS_REMAINING = DIMENSIONS - 2;
 
     runnable(&args);
 
@@ -192,6 +192,8 @@ void* runnable(void* args){
     double ** PREVIOUS_ARRAY = ARGS.PREV_ARRAY;
     pthread_t * THREAD_IDS =  ARGS.THREAD_IDS;
 
+
+
     printf("Entering Thread: %d\n", THREAD_NUMBER);
 
     if(THREAD_NUMBER < MAX_THREADS){
@@ -200,24 +202,26 @@ void* runnable(void* args){
         pthread_create(&THREAD_IDS[ARGS.THREAD_NUMBER], NULL, runnable, &ARGS);
     }
 
+    int FIRST_ROW = POSITION;
+    int FINAL_ROW = POSITION + ROWS_PER_THREAD;
+
     while(!IN_PRECISION()) {
 
-        for (int ROW = POSITION; ROW < POSITION + ROWS_PER_THREAD; ROW++) {
-            for (int COLUMN = 1; COLUMN < (DIMENSIONS - 2); COLUMN++) {
+        for (int ROW = FIRST_ROW; ROW < FINAL_ROW; ROW++) {
+            for (int COLUMN = 1; COLUMN < (DIMENSIONS - 1); COLUMN++) {
                 // Critical Section.
                 END_ARRAY[ROW][COLUMN] = average(PREVIOUS_ARRAY[ROW][COLUMN + 1], PREVIOUS_ARRAY[ROW][COLUMN - 1], PREVIOUS_ARRAY[ROW + 1][COLUMN], PREVIOUS_ARRAY[ROW - 1][COLUMN]);
 
             }
-            ROWS_REMAINING--;
         }
 
-        if(ROWS_REMAINING < ROWS_PER_THREAD){
+        // TODO: REMAINING ROWS.
+
+        if(POSITION == DIMENSIONS - 2 - ROWS_REMAINING){
             for(int ROW = DIMENSIONS - ROWS_PER_THREAD; ROW < DIMENSIONS - 1; ROW++){
-                for(int COLUMN = 1; COLUMN < (DIMENSIONS - 2); COLUMN++){
+                for(int COLUMN = 1; COLUMN < (DIMENSIONS - 1); COLUMN++){
                     END_ARRAY[ROW][COLUMN] = average(PREVIOUS_ARRAY[ROW][COLUMN + 1], PREVIOUS_ARRAY[ROW][COLUMN - 1], PREVIOUS_ARRAY[ROW + 1][COLUMN], PREVIOUS_ARRAY[ROW - 1][COLUMN]);
                 }
-                POSITION++;
-                ROWS_REMAINING--;
             }
         }
 
