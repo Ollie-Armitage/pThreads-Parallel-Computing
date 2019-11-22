@@ -11,8 +11,8 @@ struct args{
     int THREAD_NUMBER;
     int DIMENSIONS;
     int POSITION;
-    int ROWS_REMAINING;
     int ROWS_PER_THREAD;
+    int ALLOCATED_THREADS;
     double** END_ARRAY;
     double** PREV_ARRAY;
     pthread_t *THREAD_IDS;
@@ -138,7 +138,7 @@ double ** solver(double** PREVIOUS_ARRAY, int THREAD_NUM, int DIMENSIONS){
     args.THREAD_IDS = THREAD_IDS;
     args.POSITION = 1;
     args.ROWS_PER_THREAD = (DIMENSIONS - 2) / THREAD_NUM;
-    args.ROWS_REMAINING = DIMENSIONS - 2;
+    args.ALLOCATED_THREADS = THREAD_NUM;
 
     runnable(&args);
 
@@ -180,26 +180,39 @@ void copy_array(double ** FROM_ARRAY, double ** TO_ARRAY, int DIMENSIONS){
     }
 }
 
+void set_array_edges(double** RANDOM_ARRAY, double** AVERAGED_VALUES, int DIMENSIONS){
+
+    // This could be parallelised.
+
+    for(int i = 0; i < DIMENSIONS; i++){
+        AVERAGED_VALUES[i][0] = RANDOM_ARRAY[i][0];
+        AVERAGED_VALUES[i][DIMENSIONS-1] = RANDOM_ARRAY[i][DIMENSIONS-1];
+    }
+
+    for(int j = 1; j < DIMENSIONS-1; j++){
+        AVERAGED_VALUES[0][j] = RANDOM_ARRAY[0][j];
+        AVERAGED_VALUES[DIMENSIONS-1][j] = RANDOM_ARRAY[DIMENSIONS-1][j];
+    }
+
+}
+
 void* runnable(void* args){
 
     struct args ARGS = *(struct args*)args;
     int DIMENSIONS = ARGS.DIMENSIONS;
-    int THREAD_NUMBER = ARGS.THREAD_NUMBER++;
+    int THREAD_NUMBER = ARGS.THREAD_NUMBER;
     int ROWS_PER_THREAD = ARGS.ROWS_PER_THREAD;
-    int ROWS_REMAINING = ARGS.ROWS_REMAINING;
     int POSITION = ARGS.POSITION;
+    int ALLOCATED_THREADS = ARGS.ALLOCATED_THREADS;
     double ** END_ARRAY = ARGS.END_ARRAY;
     double ** PREVIOUS_ARRAY = ARGS.PREV_ARRAY;
     pthread_t * THREAD_IDS =  ARGS.THREAD_IDS;
-
-
-
+    set_array_edges(PREVIOUS_ARRAY, END_ARRAY, DIMENSIONS);
     printf("Entering Thread: %d\n", THREAD_NUMBER);
 
-    if(THREAD_NUMBER < MAX_THREADS){
-        ARGS.ROWS_REMAINING = ARGS.ROWS_REMAINING - ROWS_PER_THREAD;
+    if(THREAD_NUMBER + 1 < MAX_THREADS){
         ARGS.POSITION = ARGS.POSITION + ROWS_PER_THREAD;
-        pthread_create(&THREAD_IDS[ARGS.THREAD_NUMBER], NULL, runnable, &ARGS);
+        pthread_create(&THREAD_IDS[ARGS.THREAD_NUMBER++], NULL, runnable, &ARGS);
     }
 
     int FIRST_ROW = POSITION;
@@ -215,27 +228,44 @@ void* runnable(void* args){
             }
         }
 
+
+        if(pthread_equal(pthread_self(), THREAD_IDS[ALLOCATED_THREADS])){
+
+                for(int ROW = FINAL_ROW; ROW < DIMENSIONS - 1; ROW++){
+                    for(int COLUMN = 1; COLUMN < (DIMENSIONS - 1); COLUMN++){
+                        pthread_mutex_lock(&LOCK);
+                        END_ARRAY[ROW][COLUMN] = average(PREVIOUS_ARRAY[ROW][COLUMN + 1], PREVIOUS_ARRAY[ROW][COLUMN - 1], PREVIOUS_ARRAY[ROW + 1][COLUMN], PREVIOUS_ARRAY[ROW - 1][COLUMN]);
+                        pthread_mutex_unlock(&LOCK);
+                    }
+
+                }
+
+        }
+
         // TODO: REMAINING ROWS.
 
-        if(POSITION == DIMENSIONS - 2 - ROWS_REMAINING){
-            for(int ROW = DIMENSIONS - ROWS_PER_THREAD; ROW < DIMENSIONS - 1; ROW++){
-                for(int COLUMN = 1; COLUMN < (DIMENSIONS - 1); COLUMN++){
-                    END_ARRAY[ROW][COLUMN] = average(PREVIOUS_ARRAY[ROW][COLUMN + 1], PREVIOUS_ARRAY[ROW][COLUMN - 1], PREVIOUS_ARRAY[ROW + 1][COLUMN], PREVIOUS_ARRAY[ROW - 1][COLUMN]);
-                }
-            }
-        }
+
+        pthread_mutex_lock(&LOCK);
+        print_double_array(END_ARRAY, DIMENSIONS);
+        pthread_mutex_unlock(&LOCK);
 
         CHECK_PRECISION(END_ARRAY, PREVIOUS_ARRAY, DIMENSIONS);
         copy_array(END_ARRAY, PREVIOUS_ARRAY, DIMENSIONS);
 
     }
 
+
+    printf("Thread Exiting: %d\n", THREAD_NUMBER);
+
+
     if(THREAD_NUMBER == 1){
         pthread_mutex_destroy(&LOCK);
     }
+    else{
+        pthread_join(THREAD_IDS[THREAD_NUMBER], NULL);
+    }
 
 
-    printf("Thread Exiting: %d\n", THREAD_NUMBER);
 
 }
 
