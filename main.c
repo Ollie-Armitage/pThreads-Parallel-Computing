@@ -207,6 +207,7 @@ void* runnable(void* args){
     pthread_t * THREAD_IDS =  ARGS.THREAD_IDS;
     int PRECISION_FLAG = 0;
     int REMAINDER_FLAG = 0;
+    double ** BUFFER = malloc(sizeof(double)*DIMENSIONS);
 
     printf("Entering Thread: %d\n", THREAD_NUMBER);
 
@@ -236,7 +237,7 @@ void* runnable(void* args){
 
                 // Critical Section. Don't need row's.
 
-                if(RUN_TYPE == 0){pthread_rwlock_rdlock(&ELEMENT_LOCK);}
+                if(RUN_TYPE == 0){pthread_rwlock_tryrdlock(&ELEMENT_LOCK);}
                 double DOWN =  PREVIOUS_ARRAY[ROW][COLUMN - 1];
                 double UP = PREVIOUS_ARRAY[ROW][COLUMN + 1];
                 if(RUN_TYPE == 0){pthread_rwlock_unlock(&ELEMENT_LOCK);}
@@ -250,28 +251,44 @@ void* runnable(void* args){
         if(THREAD_NUMBER + 1 == ALLOCATED_THREADS){
             for(int ROW = FINAL_ROW; ROW < (DIMENSIONS - 1); ROW++){
                 for(int COLUMN = 1; COLUMN < (DIMENSIONS - 1); COLUMN++){
-                    double LEFT = PREVIOUS_ARRAY[ROW-1][COLUMN];
-                    double RIGHT = PREVIOUS_ARRAY[ROW+1][COLUMN];
 
-                    double reads = 0;
+                    double UP;
+                    double DOWN;
+                    double reads;
 
-                    if(RUN_TYPE == 0){pthread_rwlock_rdlock(&ELEMENT_LOCK);}
-                    double DOWN =  PREVIOUS_ARRAY[ROW][COLUMN - 1];
-                    double UP = PREVIOUS_ARRAY[ROW][COLUMN + 1];
-                    if(RUN_TYPE == 0){ pthread_rwlock_unlock(&ELEMENT_LOCK);}
+                    if(RUN_TYPE == 0){
+                        double LEFT = PREVIOUS_ARRAY[ROW-1][COLUMN];
+                        double RIGHT = PREVIOUS_ARRAY[ROW+1][COLUMN];
+                        if(pthread_rwlock_tryrdlock(&ELEMENT_LOCK)){
+                            DOWN =  PREVIOUS_ARRAY[ROW][COLUMN - 1];
+                            UP = PREVIOUS_ARRAY[ROW][COLUMN + 1];
+                            pthread_rwlock_unlock(&ELEMENT_LOCK);
 
-                    reads = average(UP, DOWN, LEFT, RIGHT);
-                    END_ARRAY[ROW][COLUMN] = reads;
-                    REMAINDER_FLAG = 1;
+                            reads = average(UP, DOWN, LEFT, RIGHT);
+                            END_ARRAY[ROW][COLUMN] = reads;
+                            REMAINDER_FLAG = 1;
+                        }
+                        else{
+                            // TODO: If can't write right now, put into buffer.
+                        }
+
+
+                    }
+                    else{
+
+                    }
+
+
+
+
                 }
             }
         }
 
-        //TODO: PRECISION Threads.
 
         PRECISION_FLAG = check_precision_section(END_ARRAY, PREVIOUS_ARRAY, FIRST_ROW, FINAL_ROW, DIMENSIONS);
-
         copy_array_section(PREVIOUS_ARRAY, END_ARRAY, FIRST_ROW, FINAL_ROW, DIMENSIONS);
+
         if(REMAINDER_FLAG == 1){
             PRECISION_FLAG = check_precision_section(END_ARRAY, PREVIOUS_ARRAY, FINAL_ROW, DIMENSIONS - 1, DIMENSIONS);
             copy_array_section(PREVIOUS_ARRAY, END_ARRAY, FINAL_ROW, DIMENSIONS - 1, DIMENSIONS);
