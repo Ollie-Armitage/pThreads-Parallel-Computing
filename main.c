@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <semaphore.h>
-
+#include <unistd.h>
 
 
 struct args{
@@ -19,8 +19,8 @@ struct args{
     pthread_t *THREAD_IDS;
 };
 
-pthread_mutex_t ELEMENT_LOCK;
-pthread_mutex_t COPY_LOCK;
+pthread_rwlock_t ELEMENT_LOCK;
+
 
 
 double PRECISION = 0;
@@ -44,8 +44,8 @@ int IN_PRECISION();
 int main(int argc, char** argv){
     // Format Args.
 
-    pthread_mutex_init(&ELEMENT_LOCK, NULL);
-    pthread_mutex_init(&COPY_LOCK, NULL);
+    pthread_rwlock_init(&ELEMENT_LOCK, NULL);
+
 
 
     int DIMENSIONS = 0;
@@ -83,9 +83,7 @@ int main(int argc, char** argv){
 void print_double_array(double **array, int DIMENSIONS){
     for(int i = 0; i < DIMENSIONS; i++){
         for(int j = 0; j < DIMENSIONS; j++){
-            pthread_mutex_lock(&ELEMENT_LOCK);
             printf("%f ", array[i][j]);
-            pthread_mutex_unlock(&ELEMENT_LOCK);
         }
         printf("\n");
     }
@@ -165,9 +163,7 @@ int CHECK_PRECISION(double ** END_ARRAY, double ** PREVIOUS_ARRAY, int DIMENSION
 void copy_array_section(double ** TO_ARRAY, double ** FROM_ARRAY, int FIRST_ROW, int FINAL_ROW, int DIMENSIONS){
     for(int i = FIRST_ROW; i < FINAL_ROW; i++){
         for(int j = 1; j < DIMENSIONS - 1; j++){
-            pthread_mutex_lock(&ELEMENT_LOCK);
             TO_ARRAY[i][j] = FROM_ARRAY[i][j];
-            pthread_mutex_unlock(&ELEMENT_LOCK);
         }
     }
 }
@@ -202,6 +198,7 @@ void* runnable(void* args){
     double ** PREVIOUS_ARRAY = ARGS.PREV_ARRAY;
     pthread_t * THREAD_IDS =  ARGS.THREAD_IDS;
     int PRECISION_FLAG = 0;
+    int REMAINDER_FLAG = 0;
 
     printf("Entering Thread: %d\n", THREAD_NUMBER);
 
@@ -218,35 +215,52 @@ void* runnable(void* args){
 
 
     while(!PRECISION_FLAG) {
-
         for (int ROW = FIRST_ROW; ROW < FINAL_ROW; ROW++) {
             for (int COLUMN = 1; COLUMN < (DIMENSIONS - 1); COLUMN++) {
-                // Critical Section. Don't need for COLUMN + 1's / - 1's.
-                pthread_mutex_lock(&ELEMENT_LOCK);
-                double reads = average(PREVIOUS_ARRAY[ROW][COLUMN + 1], PREVIOUS_ARRAY[ROW][COLUMN - 1], PREVIOUS_ARRAY[ROW + 1][COLUMN], PREVIOUS_ARRAY[ROW - 1][COLUMN]);
-                pthread_mutex_unlock(&ELEMENT_LOCK);
+                // Critical Section. Don't need row's.
+
+                double reads = 0;
+                double LEFT = PREVIOUS_ARRAY[ROW-1][COLUMN];
+                double RIGHT = PREVIOUS_ARRAY[ROW+1][COLUMN];
+                pthread_rwlock_rdlock(&ELEMENT_LOCK);
+                double DOWN =  PREVIOUS_ARRAY[ROW][COLUMN - 1];
+                double UP = PREVIOUS_ARRAY[ROW][COLUMN + 1];
+                pthread_rwlock_unlock(&ELEMENT_LOCK);
+                reads = average(UP, DOWN, LEFT, RIGHT);
                 END_ARRAY[ROW][COLUMN] = reads;
             }
         }
 
 
         if(THREAD_NUMBER + 1 == ALLOCATED_THREADS){
-            for(int ROW = FINAL_ROW; ROW < DIMENSIONS - 1; ROW++){
+            for(int ROW = FINAL_ROW; ROW < (DIMENSIONS - 1); ROW++){
                 for(int COLUMN = 1; COLUMN < (DIMENSIONS - 1); COLUMN++){
-                    pthread_mutex_lock(&ELEMENT_LOCK);
-                    double reads = average(PREVIOUS_ARRAY[ROW][COLUMN + 1], PREVIOUS_ARRAY[ROW][COLUMN - 1], PREVIOUS_ARRAY[ROW + 1][COLUMN], PREVIOUS_ARRAY[ROW - 1][COLUMN]);
-                    pthread_mutex_unlock(&ELEMENT_LOCK);
+                    double LEFT = PREVIOUS_ARRAY[ROW-1][COLUMN];
+                    double RIGHT = PREVIOUS_ARRAY[ROW+1][COLUMN];
+
+                    double reads = 0;
+
+                    pthread_rwlock_rdlock(&ELEMENT_LOCK);
+                    double DOWN =  PREVIOUS_ARRAY[ROW][COLUMN - 1];
+                    double UP = PREVIOUS_ARRAY[ROW][COLUMN + 1];
+                    pthread_rwlock_unlock(&ELEMENT_LOCK);
+
+                    reads = average(UP, DOWN, LEFT, RIGHT);
                     END_ARRAY[ROW][COLUMN] = reads;
+                    REMAINDER_FLAG = 1;
                 }
             }
         }
 
 
-
         PRECISION_FLAG = CHECK_PRECISION(END_ARRAY, PREVIOUS_ARRAY, DIMENSIONS);
 
-
         copy_array_section(PREVIOUS_ARRAY, END_ARRAY, FIRST_ROW, FINAL_ROW, DIMENSIONS);
+        if(REMAINDER_FLAG == 1){
+            copy_array_section(PREVIOUS_ARRAY, END_ARRAY, FINAL_ROW, DIMENSIONS - 1, DIMENSIONS);
+            REMAINDER_FLAG = 0;
+        }
+
     }
 
     if(THREAD_NUMBER + 1 != ALLOCATED_THREADS){
