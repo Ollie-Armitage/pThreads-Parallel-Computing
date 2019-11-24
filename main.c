@@ -26,6 +26,10 @@ pthread_rwlock_t ELEMENT_LOCK;
 double PRECISION = 0;
 int MAX_THREADS = 0;
 
+// 0 For Threaded, 1 For Sequentially.
+
+int RUN_TYPE = 0;
+
 double **generate_random_array(int DIMENSIONS);
 double ** allocate_double_array(int DIMENSIONS);
 double ** solver(double** INPUT_ARRAY, int THREAD_NUM, int DIMENSIONS);
@@ -59,6 +63,10 @@ int main(int argc, char** argv){
 
     if(argv[4] != NULL){
         sscanf(argv[4], "%d", &CORRECTNESS_TESTING);
+    }
+
+    if(MAX_THREADS == 1){
+        RUN_TYPE = 1;
     }
 
 
@@ -202,6 +210,7 @@ void* runnable(void* args){
 
     printf("Entering Thread: %d\n", THREAD_NUMBER);
 
+
     if(FINAL_ROW < (DIMENSIONS - REMAINDER) - 1){
 
         // Setup Args for next thread.
@@ -212,20 +221,24 @@ void* runnable(void* args){
         pthread_create(&THREAD_IDS[THREAD_NUMBER], NULL, runnable, &ARGS);
     }
 
-
+    // TODO: tryrwlock, if busy then come back to it after.
 
     while(!PRECISION_FLAG) {
         for (int ROW = FIRST_ROW; ROW < FINAL_ROW; ROW++) {
             for (int COLUMN = 1; COLUMN < (DIMENSIONS - 1); COLUMN++) {
-                // Critical Section. Don't need row's.
+
 
                 double reads = 0;
                 double LEFT = PREVIOUS_ARRAY[ROW-1][COLUMN];
                 double RIGHT = PREVIOUS_ARRAY[ROW+1][COLUMN];
-                pthread_rwlock_rdlock(&ELEMENT_LOCK);
+
+                // Critical Section. Don't need row's.
+
+                if(RUN_TYPE == 0){pthread_rwlock_rdlock(&ELEMENT_LOCK);}
                 double DOWN =  PREVIOUS_ARRAY[ROW][COLUMN - 1];
                 double UP = PREVIOUS_ARRAY[ROW][COLUMN + 1];
-                pthread_rwlock_unlock(&ELEMENT_LOCK);
+                if(RUN_TYPE == 0){pthread_rwlock_unlock(&ELEMENT_LOCK);}
+
                 reads = average(UP, DOWN, LEFT, RIGHT);
                 END_ARRAY[ROW][COLUMN] = reads;
             }
@@ -240,10 +253,12 @@ void* runnable(void* args){
 
                     double reads = 0;
 
-                    pthread_rwlock_rdlock(&ELEMENT_LOCK);
+                    if(RUN_TYPE == 0){pthread_rwlock_rdlock(&ELEMENT_LOCK);}
                     double DOWN =  PREVIOUS_ARRAY[ROW][COLUMN - 1];
                     double UP = PREVIOUS_ARRAY[ROW][COLUMN + 1];
-                    pthread_rwlock_unlock(&ELEMENT_LOCK);
+                    if(RUN_TYPE == 0){ pthread_rwlock_unlock(&ELEMENT_LOCK);}
+
+
 
                     reads = average(UP, DOWN, LEFT, RIGHT);
                     END_ARRAY[ROW][COLUMN] = reads;
@@ -252,6 +267,7 @@ void* runnable(void* args){
             }
         }
 
+        //TODO: PRECISION Threads.
 
         PRECISION_FLAG = CHECK_PRECISION(END_ARRAY, PREVIOUS_ARRAY, DIMENSIONS);
 
