@@ -5,7 +5,7 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <unistd.h>
-
+#include <math.h>
 
 struct args{
     int THREAD_NUMBER;
@@ -38,7 +38,7 @@ void dismantle_array(double** ARRAY, int DIMENSIONS);
 void set_array_edges(double** RANDOM_ARRAY, double** AVERAGED_VALUES, int DIMENSIONS);
 void print_double_array(double **array, int DIMENSIONS);
 void copy_array_section(double ** TO_ARRAY, double ** FROM_ARRAY, int FIRST_ROW, int FINAL_ROW, int DIMENSIONS);
-int CHECK_PRECISION(double ** END_ARRAY, double ** PREVIOUS_ARRAY, int DIMENSIONS);
+int check_precision_section(double ** END_ARRAY, double ** PREVIOUS_ARRAY, int FIRST_ROW, int FINAL_ROW, int DIMENSIONS);
 void* runnable(void* args);
 
 
@@ -154,10 +154,10 @@ double average(double UP, double DOWN, double LEFT, double RIGHT){
    return (UP + DOWN + LEFT + RIGHT) / 4;
 }
 
-int CHECK_PRECISION(double ** END_ARRAY, double ** PREVIOUS_ARRAY, int DIMENSIONS){
+int check_precision_section(double ** END_ARRAY, double ** PREVIOUS_ARRAY, int FIRST_ROW, int FINAL_ROW, int DIMENSIONS){
 
-    for(int i = 0; i < DIMENSIONS; i++){
-        for(int j = 0; j < DIMENSIONS; j++){
+    for(int i = FIRST_ROW; i < FINAL_ROW; i++){
+        for(int j = 1; j < DIMENSIONS - 1; j++){
             if(PREVIOUS_ARRAY[i][j] - END_ARRAY[i][j] > PRECISION || PREVIOUS_ARRAY[i][j] - END_ARRAY[i][j] < -PRECISION){
                 return 0;
             }
@@ -211,7 +211,9 @@ void* runnable(void* args){
     printf("Entering Thread: %d\n", THREAD_NUMBER);
 
 
-    if(FINAL_ROW < (DIMENSIONS - REMAINDER) - 1){
+    // When to make another thread.
+
+    if(THREAD_NUMBER < ALLOCATED_THREADS - 1){
 
         // Setup Args for next thread.
 
@@ -258,8 +260,6 @@ void* runnable(void* args){
                     double UP = PREVIOUS_ARRAY[ROW][COLUMN + 1];
                     if(RUN_TYPE == 0){ pthread_rwlock_unlock(&ELEMENT_LOCK);}
 
-
-
                     reads = average(UP, DOWN, LEFT, RIGHT);
                     END_ARRAY[ROW][COLUMN] = reads;
                     REMAINDER_FLAG = 1;
@@ -269,10 +269,11 @@ void* runnable(void* args){
 
         //TODO: PRECISION Threads.
 
-        PRECISION_FLAG = CHECK_PRECISION(END_ARRAY, PREVIOUS_ARRAY, DIMENSIONS);
+        PRECISION_FLAG = check_precision_section(END_ARRAY, PREVIOUS_ARRAY, FIRST_ROW, FINAL_ROW, DIMENSIONS);
 
         copy_array_section(PREVIOUS_ARRAY, END_ARRAY, FIRST_ROW, FINAL_ROW, DIMENSIONS);
         if(REMAINDER_FLAG == 1){
+            PRECISION_FLAG = check_precision_section(END_ARRAY, PREVIOUS_ARRAY, FINAL_ROW, DIMENSIONS - 1, DIMENSIONS);
             copy_array_section(PREVIOUS_ARRAY, END_ARRAY, FINAL_ROW, DIMENSIONS - 1, DIMENSIONS);
             REMAINDER_FLAG = 0;
         }
